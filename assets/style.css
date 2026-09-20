@@ -6,7 +6,7 @@
   --card: #FFFFFF;
   --ink: #0F1F2E;
   --ink2: #48596A;
-  --ink3: #75838F;
+  --ink3: #5A6876;
   --line: #DCE3EB;
   --line2: #C3CDD8;
   --cobalt: #0B5FD8;
@@ -30,7 +30,7 @@
   --card: #152130;
   --ink: #E8EEF5;
   --ink2: #A5B5C4;
-  --ink3: #7C8C9B;
+  --ink3: #94A4B4;
   --line: #263748;
   --line2: #38506A;
   --cobalt: #5B9BFF;
@@ -52,7 +52,7 @@
     --card: #152130;
     --ink: #E8EEF5;
     --ink2: #A5B5C4;
-    --ink3: #7C8C9B;
+    --ink3: #94A4B4;
     --line: #263748;
     --line2: #38506A;
     --cobalt: #5B9BFF;
@@ -142,6 +142,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 1.25rem 1rem 3rem; outline: n
 .meta { display: flex; gap: .35rem; flex-wrap: wrap; }
 .tag { font-size: .78rem; padding: .05rem .55rem; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink2); }
 .tag.cat { background: var(--cobalt-soft); border-color: transparent; color: var(--cobalt-ink); }
+.tag.pf { background: var(--cobalt); border-color: transparent; color: #fff; font-weight: 600; }
+[data-theme="dark"] .tag.pf { color: #06121f; }
 .card .pg { display: flex; align-items: center; gap: .6rem; font-size: .8rem; color: var(--ink3); }
 
 /* ---------- 스킬 페이지 레이아웃 ---------- */
@@ -245,7 +247,7 @@ blockquote p:last-child { margin-bottom: 0; }
 /* ---------- 규칙 ---------- */
 .legend { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: .85rem; color: var(--ink2); }
 .rules { list-style: none; margin: 0 0 1.5rem; padding: 0; display: grid; gap: .6rem; }
-.rule { display: grid; grid-template-columns: auto 1fr auto; gap: .8rem; align-items: start; padding: .8rem 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.rule { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .8rem; align-items: start; padding: .8rem 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
 .rule p { margin: 0; }
 .rule .why { margin-top: .35rem; color: var(--ink2); font-size: .92rem; }
 .rule .tg { font-size: .78rem; font-weight: 700; padding: .12rem .6rem; border-radius: 999px; margin-top: .15rem; white-space: nowrap; }
@@ -374,7 +376,7 @@ th { background: var(--cobalt-soft); color: var(--cobalt-ink); }
 .rule.env .tg { background: #F0C23B; color: #3A2B00; }
 .tag.env { background: var(--warn-bg); border-color: transparent; color: var(--warn-ink); }
 .envlist { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
-.envlist li { display: grid; grid-template-columns: auto 1fr; gap: .8rem; align-items: start; padding: .6rem .9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.envlist li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .8rem; align-items: start; padding: .6rem .9rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
 .envlist p { margin: .2rem 0 0; color: var(--ink2); font-size: .92rem; line-height: 1.6; }
 .envlist .tg { font-size: .78rem; font-weight: 700; padding: .12rem .6rem; border-radius: 999px; margin-top: .1rem; white-space: nowrap; }
 .envlist .env-portable .tg { background: var(--cobalt-soft); color: var(--cobalt-ink); }
@@ -404,3 +406,10 @@ th { background: var(--cobalt-soft); color: var(--cobalt-ink); }
   .top, .side, .tabs, .foot, .done-row, .fav, .copy { display: none !important; }
   body { background: #fff; color: #000; }
 }
+
+/* ---------- 320px 안전장치, 알려진 사항, 흐름 단계의 별표 위치 ---------- */
+.rule > div, .envlist li > div, .branches li > span, .card p, .note p, .fdesc { min-width: 0; overflow-wrap: anywhere; }
+.envlist .env-known .tg { background: var(--paper); color: var(--ink2); border: 1px solid var(--line2); }
+.envlist .reason { color: var(--ink2); }
+.step .fav { position: absolute; right: 2.3rem; top: .55rem; z-index: 1; }
+.step .st { padding-right: 2.8rem; }

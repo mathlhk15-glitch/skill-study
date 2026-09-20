@@ -1,4 +1,4 @@
-/* AI 스킬 교과서 · assets/app.js
+/* Claude 스킬 교과서 · assets/app.js
    외부 라이브러리 없이 동작합니다. 데이터는 skills/index.json, skills/<id>/SKILL.md, skills/<id>/study.json 에서 읽습니다. */
 (() => {
 'use strict';
@@ -27,8 +27,8 @@ const getJSON = async url => JSON.parse(await getText(url));
 
 /* ================= 저장소(localStorage) ================= */
 const store = {
-  get(k, d) { try { const v = localStorage.getItem('skillstudy:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('skillstudy:' + k, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경은 무시 */ } },
+  get(k, d) { try { const v = localStorage.getItem('skillstudy:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('skillstudy:' + k, JSON.stringify(v)); } catch { /* 저장 불가 환경은 무시 */ } },
 };
 const doneMap = () => store.get('done', {});
 const isDone = (id, tab) => !!(doneMap()[id] || {})[tab];
@@ -51,19 +51,30 @@ function toggleFav(item) {
 }
 
 /* ================= 파싱 ================= */
+const BLOCK_RE = /^[>|](?:[+-][1-9]?|[1-9][+-]?)?$/;   // >, >-, >+, >2, >2-, >+2 ... (YAML 블록 스칼라 머리글)
+const unquote = v => (v.length > 1 && v[0] === v.slice(-1) && (v[0] === '"' || v[0] === "'")) ? v.slice(1, -1) : v;
+
 function parseFrontmatter(raw) {
   const m = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
   if (!m) return { fm: {}, body: raw };
-  const fm = {}; let key = null;
+  const fm = {}; let key = null; let subIndent = null;
   for (const line of m[1].split('\n')) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
     const kv = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
     if (kv) {
-      key = kv[1]; let v = kv[2].trim();
-      if (v === '>' || v === '|' || v === '') v = '';
-      else if ((v[0] === '"' && v.slice(-1) === '"') || (v[0] === "'" && v.slice(-1) === "'")) v = v.slice(1, -1);
-      fm[key] = v;
+      key = kv[1]; subIndent = null; const v = kv[2].trim();
+      if (key === 'metadata' && (v === '' || BLOCK_RE.test(v))) fm[key] = {};      // 1단계 key-value 매핑
+      else fm[key] = (BLOCK_RE.test(v) || v === '') ? '' : unquote(v);
     } else if (key) {
-      fm[key] = (fm[key] ? fm[key] + ' ' : '') + line.trim();
+      if (typeof fm[key] === 'object') {
+        const sub = line.match(/^(\s+)([\w.-]+):\s*(.*)$/);
+        if (sub) {
+          if (subIndent === null) subIndent = sub[1].length;
+          if (sub[1].length === subIndent) fm[key][sub[2]] = unquote(sub[3].trim());   // 더 깊은 들여쓰기(중첩·목록)는 읽지 않음
+        }
+      } else if (typeof fm[key] === 'string') {
+        fm[key] = (fm[key] ? fm[key] + ' ' : '') + line.trim();
+      }
     }
   }
   return { fm, body: m[2] };
@@ -211,12 +222,30 @@ function md(src, opt = {}) {
 const DB = { site: {}, categories: [], skills: [], byId: {}, ids: [], problems: [] };
 
 /* 공개 Agent Skills 규격(agentskills.io) 기준의 간단한 형식 점검 */
+const LINT_IDS = ['name-format', 'name-dir', 'desc-length', 'compat-length'];
 function lintSkill(id, fm, desc) {
   const out = []; const name = fm.name || '';
-  out.push({ ok: /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) && name.length <= 64, text: 'name은 소문자·숫자·하이픈만 쓰고 64자 이하', detail: name ? `현재 값: ${name}` : 'name이 없습니다' });
-  out.push({ ok: name === id, text: 'name이 폴더 이름과 같음', detail: `name: ${name || '(없음)'} / 폴더: ${id}` });
-  out.push({ ok: desc.length >= 1 && desc.length <= 1024, text: 'description은 1~1024자', detail: `현재 ${desc.length}자` });
+  out.push({ id: 'name-format', ok: /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name) && name.length <= 64, text: 'name은 소문자·숫자·하이픈만 쓰고, 하이픈으로 시작하거나 끝나거나 연속되지 않으며 64자 이하', detail: name ? `현재 값: ${name}` : 'name이 없습니다' });
+  out.push({ id: 'name-dir', ok: name === id, text: 'name이 폴더 이름과 같음', detail: `name: ${name || '(없음)'} / 폴더: ${id}` });
+  out.push({ id: 'desc-length', ok: desc.length >= 1 && desc.length <= 1024, text: 'description은 1~1024자', detail: `현재 ${desc.length}자` });
+  if (typeof fm.compatibility === 'string' && fm.compatibility) out.push({ id: 'compat-length', ok: fm.compatibility.length <= 500, text: 'compatibility는 500자 이하', detail: `현재 ${fm.compatibility.length}자` });
   return out;
+}
+
+/* study.json 내용이 화면에서 어긋날 수 있는 부분을 미리 알려 줍니다 */
+function validateStudy(s) {
+  const st = s.study; const w = [];
+  (st.quiz || []).forEach((q, i) => {
+    if (!Array.isArray(q.choices) || q.choices.length < 2) w.push(`quiz[${i}]: choices는 2개 이상의 배열이어야 합니다`);
+    else if (!Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.choices.length) w.push(`quiz[${i}]: answer(${q.answer})가 choices 범위를 벗어났습니다`);
+  });
+  (st.rules || []).forEach((r, i) => { if (r.level && !RULE_LABEL[r.level]) w.push(`rules[${i}]: level "${r.level}"은(는) must, never, env, note 중 하나여야 합니다`); });
+  ((st.env || {}).items || []).forEach((it, i) => { if (it.kind !== 'portable' && it.kind !== 'env') w.push(`env.items[${i}]: kind는 portable 또는 env여야 합니다`); });
+  (st.explain || []).forEach((e, i) => { if (!s.blocks.some(b => b.code.includes(e.match))) w.push(`explain[${i}]: match 문자열이 SKILL.md 코드 블록에서 발견되지 않습니다`); });
+  (st.workflow || []).forEach((x, i) => { if (!x.title) w.push(`workflow[${i}]: title이 없습니다`); });
+  (st.knownIssues || []).forEach((k, i) => { if (!LINT_IDS.includes(k.id)) w.push(`knownIssues[${i}]: id "${k.id}"은(는) ${LINT_IDS.join(', ')} 중 하나여야 합니다`); else if (!k.reason) w.push(`knownIssues[${i}]: reason(이유)을 적어 주세요`); });
+  if (st.meta && st.meta.level && ![1, 2, 3].includes(st.meta.level)) w.push('meta.level은 1, 2, 3 중 하나여야 합니다');
+  return w;
 }
 
 function buildSkill(id, raw, study) {
@@ -228,7 +257,7 @@ function buildSkill(id, raw, study) {
     sections: splitSections(body), blocks: extractBlocks(body),
     title: meta.title || fm.name || id,
     category: meta.category || '미분류',
-    level: meta.level || 2,
+    level: [1, 2, 3].includes(meta.level) ? meta.level : 2,
     minutes: meta.minutes || Math.max(5, Math.round(body.length / 700)),
     summary: meta.summary || firstSentence(desc),
     files: {}, _filesLoaded: false, studyErr: '',
@@ -262,7 +291,8 @@ async function loadData() {
   res.forEach((r, i) => {
     if (r.status === 'fulfilled') {
       DB.skills.push(r.value);
-      if (r.value.studyErr) DB.problems.push({ id: ids[i], file: 'study.json', msg: r.value.studyErr });
+      if (r.value.studyErr) DB.problems.push({ id: ids[i], file: 'study.json', msg: r.value.studyErr, note: '학습 정리 없이 원문 자동 추출로 표시합니다' });
+      validateStudy(r.value).forEach(msg => DB.problems.push({ id: ids[i], file: 'study.json', msg, note: '화면은 표시되지만 이 항목이 어긋날 수 있습니다' }));
     } else {
       const why = r.reason || {};
       DB.problems.push({ id: ids[i], file: 'SKILL.md', msg: why.status ? `파일을 찾지 못했거나 읽지 못했습니다 (HTTP ${why.status})` : (why.message || String(why)) });
@@ -275,18 +305,41 @@ async function loadData() {
   DB.categories = cats.filter(c => DB.skills.some(s => s.category === c));
 }
 
+function refreshProblems() {
+  $$('.probbox').forEach(b => { b.innerHTML = problemsHtml(b.dataset.only || undefined); });
+}
+
+/* study.json의 files[].path 를 화면이 뜬 뒤 백그라운드로 확인: 404는 '없음', 그 밖의 HTTP 오류와 네트워크 오류는 '불러오기 실패'로 구분해 알림 */
+async function probe(url) {
+  let r = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
+  if (r.status === 405 || r.status === 501) r = await fetch(url, { cache: 'no-cache' });   // HEAD를 막는 서버는 GET으로 재확인
+  return r.status;
+}
+async function checkFilePaths() {
+  const jobs = [];
+  DB.skills.forEach(s => (s.study.files || []).forEach((f, i) => {
+    const add = (msg, note) => DB.problems.push({ id: s.id, file: 'study.json', msg: `files[${i}]: ${f.path} ${msg}`, note });
+    jobs.push(probe(`skills/${s.id}/${f.path}`).then(st => {
+      if (st === 404) add('파일을 찾지 못했습니다', '참고 파일 탭에서 이 파일은 표시되지 않습니다');
+      else if (st >= 400) add(`파일을 불러오지 못했습니다 (HTTP ${st})`, '서버 오류이거나 접근 권한 문제일 수 있습니다');
+    }).catch(() => add('파일을 확인하지 못했습니다 (네트워크 오류)', '연결 상태를 확인하고 새로고침해 보세요')));
+  }));
+  await Promise.all(jobs);
+  refreshProblems();
+}
+
 function problemsHtml(only) {
   const list = only ? DB.problems.filter(p => p.id === only) : DB.problems;
   if (!list.length) return '';
   const failed = DB.problems.filter(p => p.file === 'SKILL.md').length;
   const head = !only && failed ? `<p>skills/index.json에 등록된 스킬 ${DB.ids.length}개 중 ${DB.skills.length}개만 불러왔습니다.</p>` : '';
-  return `<div class="note bad" role="alert"><h3>확인이 필요한 파일이 있습니다</h3>${head}<ul class="plist">${list.map(p => `<li><code>skills/${esc(p.id)}/${esc(p.file)}</code> ${esc(p.msg)}${p.file === 'study.json' ? ' (학습 정리 없이 원문 자동 추출로 표시합니다)' : ''}</li>`).join('')}</ul></div>`;
+  return `<div class="note bad" role="alert"><h3>확인이 필요한 파일이 있습니다</h3>${head}<ul class="plist">${list.map(p => `<li><code>skills/${esc(p.id)}/${esc(p.file)}</code> ${esc(p.msg)}${p.note ? ` (${esc(p.note)})` : ''}</li>`).join('')}</ul></div>`;
 }
 
 async function ensureFiles(s) {
   if (s._filesLoaded) return;
   await Promise.all((s.study.files || []).map(async f => {
-    try { s.files[f.path] = await getText(`skills/${s.id}/${f.path}`); } catch (e) { s.files[f.path] = null; }
+    try { s.files[f.path] = await getText(`skills/${s.id}/${f.path}`); } catch { s.files[f.path] = null; }
   }));
   s._filesLoaded = true;
 }
@@ -297,7 +350,7 @@ function favBtn(s, tab, key, label) {
   return `<button type="button" class="fav${on ? ' on' : ''}" data-fav data-skill="${esc(s.id)}" data-tab="${esc(tab)}" data-key="${esc(key)}" data-label="${esc(label)}" aria-pressed="${on}" aria-label="즐겨찾기: ${esc(String(label).slice(0, 40))}">${on ? '★' : '☆'}</button>`;
 }
 const tag = (t, cls = '') => `<span class="tag ${cls}">${esc(t)}</span>`;
-const bar = pct => `<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`;
+const bar = (pct, label = '학습 진도') => `<div class="bar" role="progressbar" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`;
 const paras = v => (Array.isArray(v) ? v : [v]).filter(Boolean).map(t => `<p>${inline(t)}</p>`).join('');
 const list = arr => `<ul class="plist">${arr.map(x => `<li>${inline(x)}</li>`).join('')}</ul>`;
 const empty = t => `<p class="empty">${esc(t)}</p>`;
@@ -310,13 +363,41 @@ function doneRow(s, tab) {
 }
 
 /* ================= 탭 렌더러 ================= */
+/* 어느 AI 환경용 스킬인지: study.json meta.platform > index.json site.platform */
+function platformOf(s) {
+  const own = (s.study.meta || {}).platform;
+  return own !== undefined ? own : (DB.site.platform || '');
+}
+function platformTag(s) { const pf = platformOf(s); return pf ? tag(pf + ' 스킬', 'pf') : ''; }
+
+function envItems(s) {
+  const items = ((s.study.env || {}).items || []).slice();
+  if (typeof s.fm.compatibility === 'string' && s.fm.compatibility) items.unshift({ name: 'SKILL.md의 compatibility 필드', kind: 'env', note: s.fm.compatibility });
+  return items;
+}
+
+function portabilityTag(s) {
+  const items = envItems(s);
+  if (items.some(i => i.kind === 'env')) return tag('환경 의존 있음', 'env');
+  if (items.length) return tag('지침 위주');
+  return '';
+}
+
 function envBlock(s) {
-  const e = s.study.env; if (!e || !e.items || !e.items.length) return '';
-  return `<div class="block"><h2>어디서나 통하는 부분과 환경에 기대는 부분</h2><p class="fdesc">SKILL.md는 여러 AI 도구가 지원하는 공개 형식(Agent Skills)이지만, 스킬이 부르는 도구, 경로, 스크립트는 실행 환경마다 다를 수 있습니다.</p><ul class="envlist">${e.items.map(it => `<li class="env-${esc(it.kind)}"><span class="tg">${it.kind === 'env' ? '환경 의존' : '범용'}</span><div><b>${esc(it.name)}</b>${it.note ? `<p>${inline(it.note)}</p>` : ''}</div></li>`).join('')}</ul></div>`;
+  const items = envItems(s); if (!items.length) return '';
+  return `<div class="block"><h2>어디서나 통하는 부분과 환경에 기대는 부분</h2><p class="fdesc">${platformOf(s) ? `이 스킬은 ${esc(platformOf(s))}에서 쓰도록 만들어졌습니다. 아래는 다른 곳으로 옮겨도 통하는 설계와, ${esc(platformOf(s))}의 스킬 실행 환경(도구, 경로, 스크립트)에 기대는 부분을 나눈 것입니다.` : '스킬이 부르는 도구, 경로, 스크립트는 실행 환경마다 다를 수 있습니다.'}</p><ul class="envlist">${items.map(it => `<li class="env-${esc(it.kind)}"><span class="tg">${it.kind === 'env' ? '환경 의존' : '범용'}</span><div><b>${esc(it.name)}</b>${it.note ? `<p>${inline(it.note)}</p>` : ''}</div></li>`).join('')}</ul></div>`;
 }
 
 function lintBlock(s) {
-  return `<div class="block"><h2>형식 점검</h2><p class="fdesc">공개 Agent Skills 규격(agentskills.io)의 name·description 조건 기준입니다. 실제 앱이 더 너그럽게 받아 줄 수는 있지만, 다른 도구로 옮길 때를 대비한 점검입니다.</p><ul class="envlist">${s.lint.map(l => `<li class="${l.ok ? 'env-portable' : 'env-env'}"><span class="tg">${l.ok ? '통과' : '확인'}</span><div><b>${esc(l.text)}</b><p>${esc(l.detail)}</p></div></li>`).join('')}</ul></div>`;
+  const known = Object.fromEntries((s.study.knownIssues || []).filter(k => k && k.id).map(k => [k.id, k.reason || '']));
+  const fails = s.lint.filter(l => !l.ok); const kept = fails.filter(l => l.id in known).length;
+  const summary = fails.length ? ` 확인 필요 ${fails.length - kept}건${kept ? `, 알려진 사항 ${kept}건` : ''}.` : ' 모두 통과했습니다.';
+  return `<div class="block"><h2>형식 점검</h2><p class="fdesc">공개 Agent Skills 규격(agentskills.io)의 name·description 조건 기준입니다. 지금 쓰는 앱에서 동작하는지와는 별개로, 규격에 맞는지 보는 점검입니다.${summary}</p><ul class="envlist">${s.lint.map(l => {
+    const isKnown = !l.ok && l.id in known;
+    const cls = l.ok ? 'env-portable' : (isKnown ? 'env-known' : 'env-env');
+    const label = l.ok ? '통과' : (isKnown ? '알려진 사항' : '확인');
+    return `<li class="${cls}"><span class="tg">${label}</span><div><b>${esc(l.text)}</b><p>${esc(l.detail)}</p>${isKnown ? `<p class="reason">유지하는 이유: ${esc(known[l.id])}</p>` : ''}</div></li>`;
+  }).join('')}</ul></div>`;
 }
 
 function tCore(s) {
@@ -339,7 +420,7 @@ function tTrigger(s) {
   else h += `<div class="note"><h3>description에 사용자 표현 예시가 없습니다</h3><p>필수는 아니지만, 사용자가 실제로 할 법한 표현을 몇 개 적어 두면 어떤 요청에 쓰는 스킬인지 더 분명해질 수 있습니다.</p></div>`;
   if (t.note) h += `<div class="note"><h3>이 스킬의 description 읽기</h3>${paras(t.note)}</div>`;
   if (t.review) h += `<div class="note warn"><h3>학습 메모</h3>${paras(t.review)}</div>`;
-  h += `<div class="block"><h2>왜 중요한가</h2><p>name과 description은 AI가 어떤 스킬을 쓸지 판단할 때 가장 먼저 보는 핵심 정보입니다. 스킬 본문(SKILL.md 전체)은 쓰기로 정한 뒤에 읽는 구조라서, 무엇을 하는 스킬인지, 언제 쓰는지, 어떤 상황에 알맞은지를 description에 분명히 적는 것이 중요합니다. 사용자가 실제로 할 법한 표현을 몇 개 함께 적으면 의도를 전달하는 데 도움이 될 수 있습니다.</p></div>`;
+  h += `<div class="block"><h2>왜 중요한가</h2><p>Claude는 요청마다 모든 스킬의 본문을 읽지 않습니다. 먼저 각 스킬의 name과 description을 보고 이번 요청에 쓸지 판단하고, 쓰기로 정한 뒤에 SKILL.md 본문을 읽습니다. 그래서 무엇을 하는 스킬인지, 언제 쓰는지, 어떤 상황에 알맞은지를 description에 분명히 적는 것이 중요합니다. 사용자가 실제로 할 법한 표현을 몇 개 함께 적으면 의도를 전달하는 데 도움이 될 수 있습니다.</p></div>`;
   h += `<div class="block"><h2>description 원문</h2><blockquote>${esc(s.desc) || '(없음)'}</blockquote><p>name: <code>${esc(s.fm.name || '')}</code></p></div>`;
   return h;
 }
@@ -356,7 +437,7 @@ function tWorkflow(s) {
   }
   if (!items.length) return empty('단계로 나눌 수 있는 제목(Step, 단계)을 SKILL.md에서 찾지 못했습니다. 원문 탭을 확인하세요.');
   let h = `<div class="toolrow"><button type="button" class="btn" data-expand="open">모두 펼치기</button><button type="button" class="btn" data-expand="close">모두 접기</button></div><ol class="steps">`;
-  h += items.map((it, i) => `<li class="step" data-key="wf${i}"><span class="num">${i + 1}</span><details${i === 0 ? ' open' : ''}><summary><span class="st">${esc(it.title)}</span>${favBtn(s, 'workflow', 'wf' + i, it.title)}</summary><div class="body">${it.html}</div></details></li>`).join('');
+  h += items.map((it, i) => `<li class="step" data-key="wf${i}"><span class="num">${i + 1}</span><details${i === 0 ? ' open' : ''}><summary><span class="st">${esc(it.title)}</span></summary><div class="body">${it.html}</div></details>${favBtn(s, 'workflow', 'wf' + i, it.title)}</li>`).join('');
   return h + '</ol>';
 }
 
@@ -462,7 +543,8 @@ function tQuiz(s) {
 
 let viewRaw = false; let viewCtx = '';
 function tSource(s) {
-  let h = `<dl class="fm"><dt>name</dt><dd>${esc(s.fm.name || '')}</dd><dt>description</dt><dd>${esc(s.desc)}</dd></dl>`;
+  const rows = Object.keys(s.fm).map(k => { const v = s.fm[k]; const val = (v && typeof v === 'object') ? Object.keys(v).map(x => `${x}: ${v[x]}`).join(', ') : v; return `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`; }).join('');
+  let h = `<dl class="fm">${rows}</dl>`;
   h += `<div class="toolrow"><div class="seg" role="group" aria-label="보기 방식"><button type="button" data-view="rendered" aria-pressed="${!viewRaw}">보기 좋게</button><button type="button" data-view="raw" aria-pressed="${viewRaw}">원문 Markdown</button></div></div>`;
   if (viewRaw) return h + `<div class="rawbox">${codeBlock(s.raw, 'md')}</div>`;
   const toc = s.sections.filter(x => x.hid && x.level <= 3);
@@ -482,15 +564,15 @@ function overall() {
 }
 
 function renderHome() {
-  document.title = DB.site.title || 'AI 스킬 교과서';
+  document.title = DB.site.title || 'Claude 스킬 교과서';
   const o = overall();
   const shown = DB.skills.filter(s => catFilter === '전체' || s.category === catFilter);
-  app().innerHTML = `<section class="hero"><h1>${esc(DB.site.title || 'AI 스킬 교과서')}</h1>${DB.site.tagline ? `<p class="fmt">${esc(DB.site.tagline)}</p>` : ''}
+  app().innerHTML = `<section class="hero"><h1>${esc(DB.site.title || 'Claude 스킬 교과서')}</h1>${DB.site.tagline ? `<p class="fmt">${esc(DB.site.tagline)}</p>` : ''}
     <p>${esc(DB.site.subtitle || '스킬 원문을 읽기 전에 언제 쓰이고, 어떤 순서로 움직이고, 무엇을 지키는지부터 잡습니다.')}</p>
-    <div class="overall">${bar(o.pct)}<span>학습 ${o.done} / ${o.total}단계</span></div></section>
-    ${problemsHtml()}
+    <div class="overall">${bar(o.pct, '전체 학습 진도')}<span>학습 ${o.done} / ${o.total}단계</span></div></section>
+    <div class="probbox" data-only="">${problemsHtml()}</div>
     <div class="filters" role="group" aria-label="카테고리">${['전체'].concat(DB.categories).map(c => `<button type="button" class="chip" data-cat="${esc(c)}" aria-pressed="${c === catFilter}">${esc(c)}</button>`).join('')}</div>
-    <div class="grid">${shown.map(s => { const p = progress(s); return `<a class="card" href="#/skill/${esc(s.id)}"><div class="meta">${tag(s.category, 'cat')}${tag('난이도 ' + LEVEL[s.level])}${tag('약 ' + s.minutes + '분')}</div><h2>${esc(s.title)}</h2><p>${esc(s.summary)}</p><div class="pg">${bar(p.pct)}<span>${p.done}/${p.total}</span></div></a>`; }).join('') || empty('표시할 스킬이 없습니다.')}</div>`;
+    <div class="grid">${shown.map(s => { const p = progress(s); return `<a class="card" href="#/skill/${esc(s.id)}"><div class="meta">${platformTag(s)}${tag(s.category, 'cat')}${tag('난이도 ' + LEVEL[s.level])}${tag('약 ' + s.minutes + '분')}${portabilityTag(s)}</div><h2>${esc(s.title)}</h2><p>${esc(s.summary)}</p><div class="pg">${bar(p.pct, s.title + ' 학습 진도')}<span>${p.done}/${p.total}</span></div></a>`; }).join('') || empty('표시할 스킬이 없습니다.')}</div>`;
 }
 
 function sideNav(cur) {
@@ -506,15 +588,15 @@ async function renderSkill(id, spec, seq) {
   if (tab.key === 'layouts' || tab.key === 'files') await ensureFiles(s);
   if (seq !== undefined && seq !== routeSeq) return;   // 그 사이 다른 화면으로 이동했으면 그리지 않음
   const ctx = s.id + '/' + tab.key; if (ctx !== viewCtx) { viewRaw = false; viewCtx = ctx; }
-  document.title = `${s.title} · ${tab.label} · ${DB.site.title || 'AI 스킬 교과서'}`;
+  document.title = `${s.title} · ${tab.label} · ${DB.site.title || 'Claude 스킬 교과서'}`;
   const p = progress(s);
   const body = RENDER[tab.key](s, key);
   app().innerHTML = `<div class="layout"><aside class="side" aria-label="스킬 목록">${sideNav(s.id)}</aside><article>
     <div class="topline"><a class="back" href="#/">← 전체 스킬</a><label class="sr" for="skillpick">스킬 바로 이동</label><select id="skillpick" class="skillpick">${DB.skills.map(x => `<option value="${esc(x.id)}"${x.id === s.id ? ' selected' : ''}>${esc(x.title)}</option>`).join('')}</select></div>
-    ${problemsHtml(s.id)}
+    <div class="probbox" data-only="${esc(s.id)}">${problemsHtml(s.id)}</div>
     <header class="shead"><h1>${esc(s.title)}</h1><p class="sum">${esc(s.summary)}</p>
-      <div class="meta">${tag(s.category, 'cat')}${tag('난이도 ' + LEVEL[s.level])}${tag('약 ' + s.minutes + '분')}</div>
-      <div class="sprog">${bar(p.pct)}<span id="sprogtxt">학습 ${p.done} / ${p.total}단계</span></div>${tab.key === 'source' ? '' : '<p class="disc">학습 정리는 이해를 돕기 위한 재구성입니다. 실행 규칙의 기준은 원문(SKILL.md)입니다.</p>'}</header>
+      <div class="meta">${platformTag(s)}${tag(s.category, 'cat')}${tag('난이도 ' + LEVEL[s.level])}${tag('약 ' + s.minutes + '분')}${portabilityTag(s)}</div>
+      <div class="sprog">${bar(p.pct, '이 스킬의 학습 진도')}<span id="sprogtxt">학습 ${p.done} / ${p.total}단계</span></div>${tab.key === 'source' ? '' : '<p class="disc">학습 정리는 이해를 돕기 위한 재구성입니다. 실행 규칙의 기준은 원문(SKILL.md)입니다.</p>'}</header>
     <nav class="tabs" aria-label="학습 단계">${s.tabs.map(t => `<a id="tab-${t.key}" href="${routeOf(s.id, t.key)}"${t.key === tab.key ? ' aria-current="page"' : ''}>${esc(t.label)}${t.key !== 'source' && isDone(s.id, t.key) ? '<span class="ck" aria-label="완료">✓</span>' : ''}</a>`).join('')}</nav>
     <section id="pane" class="pane${['layouts', 'source', 'files'].includes(tab.key) ? ' wide' : ''}">${body}${doneRow(s, tab)}</section></article></div>`;
   const pane = $('#pane');
@@ -528,7 +610,7 @@ function focusKey(root, key) {
 }
 
 function renderFavs() {
-  document.title = '즐겨찾기 · ' + (DB.site.title || 'AI 스킬 교과서');
+  document.title = '즐겨찾기 · ' + (DB.site.title || 'Claude 스킬 교과서');
   const a = favs();
   if (!a.length) { app().innerHTML = `<h1 class="pgh">즐겨찾기</h1><p class="empty">아직 즐겨찾기가 없습니다. 규칙, 흐름 단계, 원문 제목 옆의 ☆를 눌러 보세요.</p>`; return; }
   const bySkill = {}; a.forEach(f => (bySkill[f.skill] = bySkill[f.skill] || []).push(f));
@@ -546,11 +628,12 @@ async function buildSearch() {
   const ix = [];
   DB.skills.forEach(s => {
     const st = s.study; const c = st.core || {};
-    ix.push({ s, tab: 'core', key: '', title: '핵심', text: [s.title, s.summary, c.oneLiner, (c.whenToUse || []).join(' '), c.goal, (st.lesson || {}).text, c.caution, ((st.env || {}).items || []).map(x => x.name + ' ' + (x.note || '')).join(' ')].join(' ') });
+    ix.push({ s, tab: 'core', key: '', title: '핵심', text: [s.title, s.summary, c.oneLiner, (c.whenToUse || []).join(' '), c.goal, (st.lesson || {}).text, c.caution, envItems(s).map(x => x.name + ' ' + (x.note || '')).join(' ')].join(' ') });
     s.sections.forEach(x => ix.push({ s, tab: 'source', key: x.hid || '', title: x.title || 'SKILL.md 머리말', text: x.lines.join('\n') }));
     (st.rules || []).forEach((r, i) => ix.push({ s, tab: 'rules', key: 'r' + i, title: '규칙', text: r.text + ' ' + (r.why || '') }));
     (st.workflow || []).forEach((w, i) => ix.push({ s, tab: 'workflow', key: 'wf' + i, title: w.title, text: [].concat(w.detail || []).join(' ') + ' ' + (w.branches || []).map(b => b.label + ' ' + b.text).join(' ') }));
     (st.explain || []).forEach((e, i) => ix.push({ s, tab: 'explain', key: 'x' + i, title: e.title, text: e.why + ' ' + (e.points || []).join(' ') }));
+    (st.quiz || []).forEach((q, i) => ix.push({ s, tab: 'quiz', key: 'q' + i, title: `퀴즈 문제 ${i + 1}`, text: [q.q, (q.choices || []).join(' '), q.why].join(' ') }));
     Object.keys(s.files).forEach(pth => {
       const t = s.files[pth]; if (!t) return;
       const ls = t.split('\n');
@@ -570,7 +653,7 @@ function snippet(text, toks) {
 }
 
 async function renderSearch(q, seq) {
-  document.title = `검색: ${q} · ` + (DB.site.title || 'AI 스킬 교과서');
+  document.title = `검색: ${q} · ` + (DB.site.title || 'Claude 스킬 교과서');
   const toks = q.toLowerCase().split(/\s+/).filter(Boolean);
   app().innerHTML = `<h1 class="pgh">“${esc(q)}” 검색</h1><p class="loading">찾는 중입니다.</p>`;
   const ix = await buildSearch();
@@ -583,9 +666,16 @@ async function renderSearch(q, seq) {
     res.push({ e, sc });
   });
   res.sort((a, b) => b.sc - a.sc);
-  const top = res.slice(0, 40);
+  const top = []; const perFile = {}; let capped = 0;
+  for (const r of res) {
+    if (r.e.tab === 'files') {
+      const k = r.e.s.id + '|' + r.e.key; perFile[k] = (perFile[k] || 0) + 1;
+      if (perFile[k] > 3) { capped++; continue; }      // 한 참고 파일이 결과를 독차지하지 않게 파일당 3건까지
+    }
+    if (top.length < 40) top.push(r);
+  }
   const tl = (s, k) => (s.tabs.find(t => t.key === k) || {}).label || k;
-  app().innerHTML = `<h1 class="pgh">“${esc(q)}” 검색 결과 ${res.length}건</h1>` +
+  app().innerHTML = `<h1 class="pgh">“${esc(q)}” 검색 결과 ${res.length}건</h1>` + (capped ? `<p class="disc">참고 파일은 파일마다 3건까지만 보여 줍니다 (${capped}건 생략).</p>` : '') +
     (top.length ? `<ul class="results">${top.map(({ e }) => `<li><a href="${routeOf(e.s.id, e.tab, e.key)}"><div class="meta">${tag(e.s.title, 'cat')}${tag(tl(e.s, e.tab))}</div><span class="rt">${esc(e.title)}</span><span class="rs">${snippet(e.text, toks)}</span></a></li>`).join('')}</ul>` : empty('일치하는 내용이 없습니다. 다른 낱말로 검색해 보세요.'));
 }
 
@@ -688,7 +778,7 @@ document.addEventListener('click', e => {
 
 function fallbackCopy(txt) {
   const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) { /* 무시 */ } ta.remove();
+  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch { /* 무시 */ } ta.remove();
 }
 
 function currentSkill() {
@@ -741,6 +831,7 @@ async function init() {
   catch (e) { console.error(e); renderError(e); return; }
   window.addEventListener('hashchange', route);
   await route();
+  checkFilePaths();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

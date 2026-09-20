@@ -93,7 +93,7 @@
     {
       "level": "env",
       "text": "PDF는 업로드 경로(/mnt/user-data/uploads/)에서 view 도구로 읽고, 이미지는 직접 보고 파악한다.",
-      "why": "경로와 도구 이름은 원본 스킬이 작성된 실행 환경 기준입니다."
+      "why": "경로와 도구 이름은 Claude의 스킬 실행 환경 기준입니다."
     },
     {
       "level": "note",
@@ -163,7 +163,7 @@
       {
         "name": "공문 파일 읽기: 업로드 경로(/mnt/user-data/uploads/)와 view 도구",
         "kind": "env",
-        "note": "경로와 도구 이름은 원본 스킬이 작성된 실행 환경 기준입니다."
+        "note": "경로와 도구 이름은 Claude의 스킬 실행 환경 기준입니다."
       },
       {
         "name": "출력: message_compose_v1 도구",
