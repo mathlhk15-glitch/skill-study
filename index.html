@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 스킬 교과서</title>
+<meta name="description" content="Agent Skills(SKILL.md)를 핵심, 호출 조건, 작동 흐름, 규칙, 예시, 퀴즈로 나눠 공부하는 학습 사이트">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%98%3C/text%3E%3C/svg%3E">
+<script>
+  /* 저장된 테마를 먼저 적용해 깜빡임을 막습니다 */
+  try {
+    var t = JSON.parse(localStorage.getItem('skillstudy:theme') || 'null');
+    if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#/" id="brand">AI 스킬 교과서</a>
+    <form class="search" role="search" id="searchForm">
+      <label class="sr" for="q">스킬 전체 검색</label>
+      <input id="q" type="search" placeholder="전체 검색 (예: linesegarray)" autocomplete="off">
+    </form>
+    <nav class="tools" aria-label="도구">
+      <a class="tbtn" href="#/favs" id="favLink">즐겨찾기 <span id="favCount">0</span></a>
+      <button class="tbtn" type="button" id="themeBtn" aria-label="화면 밝기 전환">밝기</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+  <div id="app" aria-live="polite">
+    <p class="loading">불러오는 중입니다.</p>
+  </div>
+</main>
+
+<footer class="foot">
+  <p>학습 기록, 즐겨찾기, 메모는 이 브라우저에만 저장됩니다.</p>
+</footer>
+
+<noscript><p style="padding:1rem">이 사이트는 JavaScript가 필요합니다.</p></noscript>
+<script src="assets/app.js"></script>
+</body>
+</html>

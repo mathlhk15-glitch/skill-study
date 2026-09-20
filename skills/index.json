@@ -1,0 +1,19 @@
+{
+  "site": {
+    "title": "AI 스킬 교과서",
+    "tagline": "Agent Skills / SKILL.md 학습",
+    "subtitle": "스킬이 언제 쓰이고, 어떤 순서로 움직이고, 무엇을 지키는지 나눠서 공부합니다."
+  },
+  "categories": [
+    "업무 자동화",
+    "문서 자동화",
+    "콘텐츠 제작"
+  ],
+  "skills": [
+    "gianmun-writer",
+    "gumui-writer",
+    "gongmun-to-messenger",
+    "new-hwpx-master",
+    "class-slide-maker"
+  ]
+}
