@@ -413,3 +413,10 @@ th { background: var(--cobalt-soft); color: var(--cobalt-ink); }
 .envlist .reason { color: var(--ink2); }
 .step .fav { position: absolute; right: 2.3rem; top: .55rem; z-index: 1; }
 .step .st { padding-right: 2.8rem; }
+
+/* ---------- 원인·해결 안내 상자 ---------- */
+.fixbox { margin-top: 1rem; padding: .8rem 1rem; background: var(--card); color: var(--ink); border: 1px solid var(--danger); border-radius: 10px; }
+.fixbox h4 { font-size: 1rem; margin-bottom: .4rem; color: var(--danger); }
+.fixbox p, .fixbox li { color: var(--ink); }
+.fixbox ol { margin: .4rem 0 0; padding-left: 1.3rem; }
+.fixbox code { background: var(--cobalt-soft); color: var(--cobalt-ink); }

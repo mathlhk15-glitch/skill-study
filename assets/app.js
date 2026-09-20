@@ -219,7 +219,7 @@ function md(src, opt = {}) {
 }
 
 /* ================= 데이터 ================= */
-const DB = { site: {}, categories: [], skills: [], byId: {}, ids: [], problems: [] };
+const DB = { site: {}, categories: [], skills: [], byId: {}, ids: [], problems: [], jekyll: false };
 
 /* 공개 Agent Skills 규격(agentskills.io) 기준의 간단한 형식 점검 */
 const LINT_IDS = ['name-format', 'name-dir', 'desc-length', 'compat-length'];
@@ -295,11 +295,12 @@ async function loadData() {
       validateStudy(r.value).forEach(msg => DB.problems.push({ id: ids[i], file: 'study.json', msg, note: '화면은 표시되지만 이 항목이 어긋날 수 있습니다' }));
     } else {
       const why = r.reason || {};
-      DB.problems.push({ id: ids[i], file: 'SKILL.md', msg: why.status ? `파일을 찾지 못했거나 읽지 못했습니다 (HTTP ${why.status})` : (why.message || String(why)) });
+      DB.problems.push({ id: ids[i], file: 'SKILL.md', status: why.status, msg: why.status ? `파일을 찾지 못했거나 읽지 못했습니다 (HTTP ${why.status})` : (why.message || String(why)) });
       console.warn('스킬을 불러오지 못했습니다:', r.reason);
     }
   });
   DB.byId = Object.fromEntries(DB.skills.map(s => [s.id, s]));
+  await diagnoseMissing();
   const cats = (idx.categories || []).slice();
   DB.skills.forEach(s => { if (!cats.includes(s.category)) cats.push(s.category); });
   DB.categories = cats.filter(c => DB.skills.some(s => s.category === c));
@@ -328,12 +329,27 @@ async function checkFilePaths() {
   refreshProblems();
 }
 
+/* SKILL.md가 404인데 SKILL.html은 있으면 GitHub Pages(Jekyll)가 .md를 HTML로 바꿔 버린 것입니다 */
+async function diagnoseMissing() {
+  const miss = DB.problems.find(p => p.file === 'SKILL.md' && p.status === 404);
+  if (!miss) return;
+  try { const r = await fetch(`skills/${miss.id}/SKILL.html`, { method: 'HEAD', cache: 'no-cache' }); DB.jekyll = r.ok; }
+  catch { DB.jekyll = false; }
+}
+
+function diagnoseHtml() {
+  if (DB.jekyll) return `<div class="fixbox"><h4>원인: GitHub Pages가 SKILL.md를 HTML로 바꿨습니다</h4><p><code>SKILL.html</code>은 있는데 <code>SKILL.md</code>가 없는 것이 그 증거입니다. 저장소 맨 위에 <b>.nojekyll</b>이라는 <b>빈 파일</b>이 없을 때 생깁니다.</p><ol><li>GitHub 저장소 화면에서 <b>Add file → Create new file</b>을 누릅니다.</li><li>파일 이름 칸에 <code>.nojekyll</code>이라고 입력합니다 (앞의 점 포함, 내용은 비워 둡니다).</li><li><b>Commit changes</b>를 누르고 1~2분 기다린 뒤 이 화면을 <b>Ctrl+F5</b>(휴대폰은 새로고침)로 다시 엽니다.</li></ol></div>`;
+  const allMissing = DB.problems.filter(p => p.file === 'SKILL.md' && p.status === 404).length;
+  if (allMissing) return `<div class="fixbox"><h4>확인해 볼 것</h4><ol><li>저장소에 <code>skills/&lt;스킬 이름&gt;/SKILL.md</code> 파일이 실제로 올라가 있는지 확인하세요. 폴더째 올릴 때 하위 폴더가 빠지는 경우가 있습니다.</li><li>파일 이름의 대소문자(<code>SKILL.md</code>)가 정확한지 확인하세요. GitHub Pages는 대소문자를 구분합니다.</li><li>방금 올렸다면 1~2분 뒤 다시 열어 보세요.</li></ol></div>`;
+  return '';
+}
+
 function problemsHtml(only) {
   const list = only ? DB.problems.filter(p => p.id === only) : DB.problems;
   if (!list.length) return '';
   const failed = DB.problems.filter(p => p.file === 'SKILL.md').length;
   const head = !only && failed ? `<p>skills/index.json에 등록된 스킬 ${DB.ids.length}개 중 ${DB.skills.length}개만 불러왔습니다.</p>` : '';
-  return `<div class="note bad" role="alert"><h3>확인이 필요한 파일이 있습니다</h3>${head}<ul class="plist">${list.map(p => `<li><code>skills/${esc(p.id)}/${esc(p.file)}</code> ${esc(p.msg)}${p.note ? ` (${esc(p.note)})` : ''}</li>`).join('')}</ul></div>`;
+  return `<div class="note bad" role="alert"><h3>확인이 필요한 파일이 있습니다</h3>${head}<ul class="plist">${list.map(p => `<li><code>skills/${esc(p.id)}/${esc(p.file)}</code> ${esc(p.msg)}${p.note ? ` (${esc(p.note)})` : ''}</li>`).join('')}</ul>${only ? '' : diagnoseHtml()}</div>`;
 }
 
 async function ensureFiles(s) {

@@ -270,6 +270,10 @@ def check_site():
         for d in sorted(p for p in SKILLS.iterdir() if p.is_dir()):
             if (d / "SKILL.md").exists() and d.name not in ids:
                 warns.append(f"skills/{d.name}/ 는 index.json 에 등록되지 않아 화면에 나오지 않습니다")
+    has_workflow = any((ROOT / ".github" / "workflows").glob("*.y*ml")) if (ROOT / ".github" / "workflows").exists() else False
+    if not (ROOT / ".nojekyll").exists() and not has_workflow:
+        errors.append(".nojekyll 파일이 없습니다. 브랜치로 배포하는 GitHub Pages는 Jekyll이 SKILL.md(맨 위에 --- 가 있는 파일)를 HTML로 바꿔 "
+                      "화면에 스킬이 하나도 나오지 않습니다. 저장소 맨 위에 빈 파일 .nojekyll 을 만드세요 (GitHub Actions로 배포한다면 무시해도 됩니다)")
     levels, kinds = {"must", "never", "env", "note"}, {"portable", "env"}
     for sid in ids:
         d = SKILLS / sid

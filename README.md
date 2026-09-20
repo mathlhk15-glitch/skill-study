@@ -41,7 +41,7 @@ skill-study/
 │     └─ references/, assets/ ...   스킬에 딸린 파일 (선택)
 ├─ tools/add_skill.py    새 스킬 등록 도구
 ├─ .gitignore
-└─ .nojekyll
+└─ .nojekyll            숨김 파일이지만 GitHub Pages에서는 필수입니다
 ```
 
 `original/` 폴더는 `add_skill.py`가 받은 압축 파일을 내 컴퓨터에 보관할 때 만드는 폴더입니다(`original/<스킬-id>/`). 같은 내용은 다시 저장하지 않고, 내용이 다른 새 버전은 `20260921-101500-이름.skill`처럼 날짜·시간을 붙여 **이전 버전을 덮어쓰지 않습니다.** `.gitignore`에 들어 있어서 Git으로 올리면 제외됩니다. 웹 화면에서 직접 업로드할 때는 이 폴더를 끌어다 놓지 마세요.
@@ -62,11 +62,29 @@ python -m http.server 8000
 
 1. GitHub에서 새 저장소를 만듭니다. 무료 계정에서 Pages를 쓰려면 공개(Public)여야 합니다.
 2. 이 폴더의 **내용**(`index.html`, `assets`, `skills`, `tools` 등)을 저장소 최상위에 올립니다.
-3. 저장소 **Settings → Pages → Build and deployment**에서 Source를 `Deploy from a branch`, Branch를 `main`, 폴더를 `/ (root)`로 지정하고 Save를 누릅니다.
-4. 1~2분 뒤 `https://<사용자명>.github.io/<저장소명>/` 으로 접속됩니다.
+3. **`.nojekyll` 파일이 저장소에 올라갔는지 반드시 확인합니다.** (아래 설명 참고)
+4. 저장소 **Settings → Pages → Build and deployment**에서 Source를 `Deploy from a branch`, Branch를 `main`, 폴더를 `/ (root)`로 지정하고 Save를 누릅니다.
+5. 1~2분 뒤 `https://<사용자명>.github.io/<저장소명>/` 으로 접속됩니다.
 
 사이트의 모든 경로는 상대 경로라서 저장소 이름이 무엇이어도 동작합니다.
-`.nojekyll`은 없어도 동작합니다. 숨김 파일이라 웹 업로드에서 빠져도 괜찮습니다.
+
+### `.nojekyll`은 필수입니다
+
+GitHub Pages는 기본적으로 Jekyll이라는 도구로 사이트를 만듭니다. Jekyll은 **맨 윗줄이 `---`로 시작하는 파일**(모든 `SKILL.md`가 해당)을 Markdown 문서로 보고 `SKILL.html`로 바꿔 버립니다. 그러면 `SKILL.md` 주소는 404가 되어 화면에 스킬이 하나도 나오지 않습니다. 저장소 맨 위에 `.nojekyll`이라는 **빈 파일**이 있으면 Jekyll을 건너뛰고 파일을 그대로 공개합니다.
+
+`.nojekyll`은 이름이 점으로 시작하는 숨김 파일이라 **폴더를 끌어다 올릴 때 빠지기 쉽습니다.** 저장소 첫 화면의 파일 목록에 `.nojekyll`이 보이지 않으면 직접 만드세요.
+
+1. 저장소 화면에서 **Add file → Create new file**을 누릅니다.
+2. 파일 이름 칸에 `.nojekyll`을 입력합니다 (앞의 점 포함, 내용은 비워 둡니다).
+3. **Commit changes**를 누릅니다.
+
+다른 방법: **Settings → Pages → Source**를 `GitHub Actions`로 바꾸고 제안되는 `Static HTML` 워크플로를 만들면 Jekyll 없이 배포되므로 `.nojekyll`이 필요 없습니다.
+
+### 첫 화면에 빨간 안내가 뜰 때
+
+`skills/index.json에 등록된 스킬 5개 중 0개만 불러왔습니다`와 함께 각 `SKILL.md`가 `HTTP 404`로 나오면 거의 항상 위의 `.nojekyll` 문제입니다. 사이트가 스스로 `SKILL.html`이 있는지 확인해서, 그렇다면 원인과 해결 순서를 화면에 보여 줍니다. 직접 확인하려면 브라우저에서 `https://<사용자명>.github.io/<저장소명>/skills/gianmun-writer/SKILL.html`을 열어 보세요. 열리면 Jekyll이 변환한 것입니다.
+
+`SKILL.html`도 없다면 `skills/<스킬 이름>/SKILL.md`가 저장소에 실제로 올라갔는지(폴더째 올릴 때 하위 폴더가 빠지는 경우가 있습니다), 파일 이름의 대소문자가 맞는지 확인하세요.
 
 ## 새 스킬 추가하기
 
@@ -93,6 +111,7 @@ python tools/add_skill.py --check
 
 설치는 하지 않고 다음을 확인합니다. 오류가 있으면 종료 코드가 1입니다.
 
+- **`.nojekyll`이 있는지** (없으면 오류, GitHub Actions로 배포하면 무시)
 - `index.json`에 적힌 스킬의 `SKILL.md`가 있는지
 - `skills/` 안에 폴더는 있는데 `index.json`에 등록하지 않아 **화면에 나오지 않는** 스킬이 있는지
 - `study.json`의 문법, 퀴즈 `answer` 범위, `rules.level`, `env.items.kind`, `files[].path` 존재, `explain.match`
